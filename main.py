@@ -3,7 +3,6 @@ import psycopg2
 import os
 import secrets
 import smtplib
-from email.header import Header
 from email.message import EmailMessage
 from typing import Optional
 from dotenv import load_dotenv
@@ -54,7 +53,7 @@ def enviar_email_com_botao(email_destino: str, token: str):
     msg = EmailMessage()
     msg["From"] = remetente
     msg["To"] = email_destino
-    msg["Subject"] = Header("Ative a sua conta - TVC App", "utf-8")
+    msg["Subject"] = "Ative a sua conta - TVC App"
 
     corpo_html = f"""
     <!DOCTYPE html>
