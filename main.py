@@ -166,9 +166,18 @@ def registar_utilizador(
     dados: UtilizadorRegisto,
     db=Depends(obter_conexao),
 ):
+    username = dados.username.strip()
+    email = dados.email.strip()
+    password = dados.password
+
+    if not username or not email or not password:
+        raise HTTPException(
+            status_code=400,
+            detail="Preencha o nome, o email e a password.",
+        )
+
     try:
-        password_hash = pwd_context.hash(dados.password)
-        token_seguro = secrets.token_hex(16)
+        password_hash = pwd_context.hash(password)
 
         with db.cursor() as cursor:
             cursor.execute(
@@ -177,16 +186,16 @@ def registar_utilizador(
                     username,
                     email,
                     password_hash,
+                    confirmado,
                     token_confirmacao
                 )
-                VALUES (%s, %s, %s, %s)
+                VALUES (%s, %s, %s, FALSE, NULL)
                 RETURNING id, username, email;
                 """,
                 (
-                    dados.username.strip(),
-                    dados.email.strip(),
+                    username,
+                    email,
                     password_hash,
-                    token_seguro,
                 ),
             )
 
@@ -196,6 +205,7 @@ def registar_utilizador(
 
     except psycopg2.errors.UniqueViolation:
         db.rollback()
+
         raise HTTPException(
             status_code=409,
             detail="O username ou email já estão em uso.",
@@ -210,31 +220,11 @@ def registar_utilizador(
             detail="Não foi possível criar a conta.",
         ) from None
 
-    try:
-        enviar_email_com_botao(
-            dados.email.strip(),
-            token_seguro,
-        )
-
-    except Exception:
-        logger.exception(
-            "REGISTO: conta criada, mas falhou o envio do email."
-        )
-
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "A conta foi criada, mas não foi possível enviar "
-                "o email de ativação. Não repita o registo "
-                "com o mesmo email."
-            ),
-        ) from None
+    # Confirmação por email temporariamente desativada.
+    # enviar_email_com_botao(email, token_seguro)
 
     return {
-        "mensagem": (
-            "Utilizador registado! Verifique o email "
-            "para ativar a conta."
-        ),
+        "mensagem": "Conta criada com sucesso! Já pode iniciar sessão.",
         "utilizador": novo_utilizador,
     }
 
@@ -284,31 +274,53 @@ def confirmar_conta_via_link(token: str, db = Depends(obter_conexao)):
 # 3. ROTA DE LOGIN (POST) - Corrigida para tuplos psycopg2
 # ----------------------------------------------------
 @app.post("/api/login")
-def login_utilizador(dados: UtilizadorLogin, db = Depends(obter_conexao)):
-    cursor = db.cursor()
-    # Mapeamento explícito das colunas criadas no banco
-    cursor.execute("SELECT id, username, email, password_hash, confirmado FROM utilizadores WHERE email = %s;", (dados.email,))
-    utilizador = cursor.fetchone()
-    
+def login_utilizador(
+    dados: UtilizadorLogin,
+    db=Depends(obter_conexao),
+):
+    with db.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id, username, email, password_hash
+            FROM utilizadores
+            WHERE email = %s;
+            """,
+            (dados.email.strip(),),
+        )
+
+        utilizador = cursor.fetchone()
+
     if not utilizador:
-        raise HTTPException(status_code=401, detail="Credenciais inválidas.")
-        
-    db_id, db_username, db_email, db_password_hash, db_confirmado = utilizador
-    
-    if not db_confirmado:
-        raise HTTPException(status_code=403, detail="Por favor, confirme a sua conta primeiro através do email.")
-        
-    password_valida = pwd_context.verify(dados.password, db_password_hash)
+        raise HTTPException(
+            status_code=401,
+            detail="Credenciais inválidas.",
+        )
+
+    password_valida = pwd_context.verify(
+        dados.password,
+        utilizador["password_hash"],
+    )
+
     if not password_valida:
-        raise HTTPException(status_code=401, detail="Credenciais inválidas.")
-        
+        raise HTTPException(
+            status_code=401,
+            detail="Credenciais inválidas.",
+        )
+
+    # Confirmação por email temporariamente desativada.
+    # if not utilizador["confirmado"]:
+    #     raise HTTPException(
+    #         status_code=403,
+    #         detail="Confirme primeiro a sua conta através do email.",
+    #     )
+
     return {
-        "mensagem": "Login efetuado com sucesso!", 
+        "mensagem": "Login efetuado com sucesso!",
         "utilizador": {
-            "id": db_id, 
-            "username": db_username,
-            "email": db_email
-        }
+            "id": utilizador["id"],
+            "username": utilizador["username"],
+            "email": utilizador["email"],
+        },
     }
 
 @app.post("/api/reports", status_code=status.HTTP_201_CREATED)
