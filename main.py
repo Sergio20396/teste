@@ -1,3 +1,5 @@
+import logging
+import psycopg2
 import os
 import secrets
 import smtplib
@@ -15,6 +17,7 @@ import psycopg2
 
 from database import obter_conexao
 
+logger = logging.getLogger("uvicorn.error")
 # Carrega as variáveis de ambiente (.env)
 load_dotenv()
 
@@ -111,34 +114,81 @@ class UtilizadorLogin(BaseModel):
 # 1. ROTA DE REGISTO (POST)
 # ----------------------------------------------------
 @app.post("/api/registo", status_code=status.HTTP_201_CREATED)
-def registar_utilizador(dados: UtilizadorRegisto, db = Depends(obter_conexao)):
-    cursor = db.cursor()
-    password_hash = pwd_context.hash(dados.password)
-    token_seguro = secrets.token_hex(16)
-    
+def registar_utilizador(
+    dados: UtilizadorRegisto,
+    db=Depends(obter_conexao),
+):
     try:
-        query = """
-            INSERT INTO utilizadores (username, email, password_hash, token_confirmacao)
-            VALUES (%s, %s, %s, %s) RETURNING id, username, email;
-        """
-        cursor.execute(query, (dados.username, dados.email, password_hash, token_seguro))
-        novo_utilizador = cursor.fetchone()
+        password_hash = pwd_context.hash(dados.password)
+        token_seguro = secrets.token_hex(16)
+
+        with db.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO utilizadores (
+                    username,
+                    email,
+                    password_hash,
+                    token_confirmacao
+                )
+                VALUES (%s, %s, %s, %s)
+                RETURNING id, username, email;
+                """,
+                (
+                    dados.username.strip(),
+                    dados.email.strip(),
+                    password_hash,
+                    token_seguro,
+                ),
+            )
+
+            novo_utilizador = cursor.fetchone()
+
         db.commit()
-        
-        # Envia e-mail em segundo plano
-        enviar_email_com_botao(dados.email, token_seguro)
-        
-        return {
-            "mensagem": "Utilizador registado! Verifique a sua caixa de entrada para ativar a conta.",
-            "utilizador": {"id": novo_utilizador[0], "username": novo_utilizador[1], "email": novo_utilizador[2]}
-        }
+
     except psycopg2.errors.UniqueViolation:
         db.rollback()
-        raise HTTPException(status_code=400, detail="O username ou email já estão em uso.")
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
+        raise HTTPException(
+            status_code=409,
+            detail="O username ou email já estão em uso.",
+        ) from None
 
+    except Exception:
+        logger.exception("REGISTO: falha ao criar o utilizador.")
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Não foi possível criar a conta.",
+        ) from None
+
+    try:
+        enviar_email_com_botao(
+            dados.email.strip(),
+            token_seguro,
+        )
+
+    except Exception:
+        logger.exception(
+            "REGISTO: conta criada, mas falhou o envio do email."
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "A conta foi criada, mas não foi possível enviar "
+                "o email de ativação. Não repita o registo "
+                "com o mesmo email."
+            ),
+        ) from None
+
+    return {
+        "mensagem": (
+            "Utilizador registado! Verifique o email "
+            "para ativar a conta."
+        ),
+        "utilizador": novo_utilizador,
+    }
 
 # ----------------------------------------------------
 # 2. ROTA DE ATIVAÇÃO VIA LINK (GET)
