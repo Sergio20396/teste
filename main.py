@@ -1,8 +1,10 @@
 import logging
 import psycopg2
 import os
+import ssl
 import secrets
 import smtplib
+import logging
 from email.message import EmailMessage
 from typing import Optional
 from dotenv import load_dotenv
@@ -39,16 +41,25 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def enviar_email_com_botao(email_destino: str, token: str):
-    remetente = os.getenv("GMAIL_USER", "sergio.pt2005@gmail.com")
+    remetente = os.getenv("GMAIL_USER")
     palavra_passe_app = os.getenv("GMAIL_PASS")
+    api_url = os.getenv("API_URL")
+
+    if not remetente:
+        raise RuntimeError("GMAIL_USER não configurada no servidor.")
 
     if not palavra_passe_app:
-        print("-> [Erro] GMAIL_PASS não configurada no ficheiro .env!")
-        return
+        raise RuntimeError("GMAIL_PASS não configurada no servidor.")
 
-    # Lê dinamicamente o domínio público do seu servidor online
-    api_url = os.getenv("API_URL", "http://localhost:8000")
-    link_ativacao = f"{api_url.rstrip('/')}/api/confirmar?token={token}"
+    if not api_url:
+        raise RuntimeError("API_URL não configurada no servidor.")
+
+    # Remove os espaços de apresentação da password de aplicação.
+    palavra_passe_app = palavra_passe_app.replace(" ", "").strip()
+
+    link_ativacao = (
+        f"{api_url.rstrip('/')}/api/confirmar?token={token}"
+    )
 
     msg = EmailMessage()
     msg["From"] = remetente
@@ -61,40 +72,78 @@ def enviar_email_com_botao(email_destino: str, token: str):
       <head>
         <meta charset="UTF-8">
       </head>
-      <body style="font-family: Arial, sans-serif; text-align: center; padding: 40px; background-color: #f4f6f9;">
-        <div style="max-width: 500px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
-            <h2>Bem-vindo à nossa aplicação!</h2>
-            <p>Falta apenas um passo para ativar a sua conta. Clique no botão abaixo:</p>
-            <br>
+      <body style="
+          font-family: Arial, sans-serif;
+          text-align: center;
+          padding: 40px;
+          background-color: #f4f6f9;
+      ">
+        <div style="
+            max-width: 500px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+        ">
+          <h2>Bem-vindo à nossa aplicação!</h2>
+
+          <p>
+            Falta apenas um passo para ativar a sua conta.
+            Clique no botão abaixo:
+          </p>
+
+          <p>
             <a href="{link_ativacao}"
-               style="background-color: #3498db; color: white; padding: 14px 28px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-               ATIVAR MINHA CONTA
+               style="
+                   background-color: #3498db;
+                   color: white;
+                   padding: 14px 28px;
+                   text-decoration: none;
+                   border-radius: 5px;
+                   font-weight: bold;
+                   display: inline-block;
+               ">
+              ATIVAR MINHA CONTA
             </a>
-            <br><br><br>
-            <p style="color: #999; font-size: 12px;">Se o botão não funcionar, copie este link:</p>
-            <p style="color: #3498db; font-size: 12px; word-break: break-all;">{link_ativacao}</p>
+          </p>
+
+          <p>Se o botão não funcionar, copie este link:</p>
+
+          <p style="word-break: break-all;">
+            {link_ativacao}
+          </p>
         </div>
       </body>
     </html>
     """
 
     msg.set_content(
-        f"Bem-vindo! Aceda ao link seguinte para ativar a sua conta:\n{link_ativacao}",
-        charset="utf-8"
+        "Bem-vindo! Aceda ao link seguinte para ativar a sua conta:\n"
+        + link_ativacao,
+        charset="utf-8",
     )
-    msg.add_alternative(corpo_html, subtype="html", charset="utf-8")
+
+    msg.add_alternative(
+        corpo_html,
+        subtype="html",
+        charset="utf-8",
+    )
 
     try:
-        # CORRIGIDO: Agora aponta exatamente para o Host SMTP da Google
-        server = smtplib.SMTP("smtp.gmail.com", 587, timeout=20)
-        server.starttls()
-        server.login(remetente, palavra_passe_app.strip())
-        server.send_message(msg)
-        server.quit()
-        print(f"-> Email de ativação enviado com sucesso para {email_destino}!")
-    except Exception as e:
-        print(f"Erro ao enviar email para {email_destino}: {type(e).__name__}: {e}")
+        with smtplib.SMTP(
+            "smtp.gmail.com",
+            587,
+            timeout=20,
+        ) as server:
+            server.starttls(context=ssl.create_default_context())
+            server.login(remetente, palavra_passe_app)
+            server.send_message(msg)
 
+        logger.info("EMAIL: mensagem entregue ao servidor SMTP.")
+
+    except Exception:
+        logger.exception("EMAIL: falha no envio da mensagem.")
+        raise
 
 # ----------------------------------------------------
 # MODELOS DE DADOS
