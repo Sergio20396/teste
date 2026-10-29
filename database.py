@@ -1,20 +1,40 @@
+import logging
 import os
-import psycopg2
-from dotenv import load_dotenv
 
-# Garante que o ficheiro .env é lido
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from dotenv import load_dotenv
+from fastapi import HTTPException
+
+
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
+
 def obter_conexao():
+    conn = None
+
     try:
-        conexao = psycopg2.connect(
-            host=os.getenv("DB_HOST"),
-            port=os.getenv("DB_PORT"),
-            database=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD")
+        conn = psycopg2.connect(
+            host=os.environ["DB_HOST"],
+            port=int(os.environ.get("DB_PORT", "5432")),
+            dbname=os.environ.get("DB_NAME", "postgres"),
+            user=os.environ["DB_USER"],
+            password=os.environ["DB_PASSWORD"],
+            sslmode="require",
+            connect_timeout=15,
+            cursor_factory=RealDictCursor,
         )
-        return conexao
-    except Exception as e:
-        print(f"Erro ao ligar ao Supabase: {e}")
-        raise e
+    except (psycopg2.Error, KeyError, ValueError):
+        logger.exception("Falha ao estabelecer ligação à base de dados.")
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível ligar à base de dados.",
+        ) from None
+
+    try:
+        yield conn
+    finally:
+        if conn is not None:
+            conn.close()
