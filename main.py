@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from passlib.context import CryptContext
 import psycopg2
 
-from main_api.database import obter_conexao
+from database import obter_conexao
 
 # Carrega as variáveis de ambiente (.env)
 load_dotenv()
