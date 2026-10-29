@@ -18,7 +18,7 @@ from database import obter_conexao
 # Carrega as variáveis de ambiente (.env)
 load_dotenv()
 
-app = FastAPI(title="API Completa TVC - Autenticação & Reports")
+app = FastAPI(title="API Completa TVC - Autenticação & Reports", redirect_slashes=False)
 
 # Diretório para uploads de relatórios no servidor
 UPLOAD_DIR = "uploads"
@@ -27,7 +27,7 @@ if not os.path.exists(UPLOAD_DIR):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
