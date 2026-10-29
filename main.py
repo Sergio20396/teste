@@ -285,15 +285,31 @@ async def criar_report(
 
 
 @app.get("/api/verificar-estado")
-def verificar_estado_utilizador(email: str, db = Depends(obter_conexao)):
-    cursor = db.cursor()
-    cursor.execute("SELECT confirmado FROM utilizadores WHERE email = %s;", (email,))
-    resultado = cursor.fetchone()
-    
-    if not resultado:
-        return {"confirmado": False}
-        
-    return {"confirmado": resultado[0]}
+def verificar_estado(
+    email: str,
+    db=Depends(obter_conexao),
+):
+    with db.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT confirmado
+            FROM utilizadores
+            WHERE email = %s;
+            """,
+            (email.strip(),),
+        )
+
+        utilizador = cursor.fetchone()
+
+    # Não devolve dados pessoais nem distingue
+    # uma conta inexistente de uma conta não confirmada.
+    confirmado = (
+        bool(utilizador["confirmado"])
+        if utilizador is not None
+        else False
+    )
+
+    return {"confirmado": confirmado}
 # ----------------------------------------------------
 # INICIALIZAÇÃO DO SERVIDOR (Abre para a rede ou internet)
 # ----------------------------------------------------
